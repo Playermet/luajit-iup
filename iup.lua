@@ -1488,6 +1488,12 @@ function cb.wom_cb(func)
   end)
 end
 
+function cb.caret_cb(func)
+  return cb.caret_cb_raw(function(ih, lin, col, pos)
+    return func(ih, lin, col, pos) or const.default
+  end)
+end
+
 
 cb.action_raw         = 'int (*)(Ihandle*)'
 cb.getfocus_cb_raw    = 'int (*)(Ihandle*)'
@@ -1515,6 +1521,7 @@ cb.show_cb_raw        = 'int (*)(Ihandle*,int)'
 
 cb.dropfiles_cb_raw   = 'int (*)(Ihandle*,const char*,int,int,int)'
 cb.wom_cb_raw         = 'int (*)(Ihandle*,int)'
+cb.caret_cb_raw       = 'int (*)(Ihandle*,int,int,int)'
 
 
 local builder_mt = {}
@@ -1522,7 +1529,7 @@ local builder_mt = {}
 function builder_mt:__index(name)
   return function(t)
     local ih = mod.create(name)
-    help.set_attributes_table(ih, t)
+    help.set_attributes_lua(ih, t)
     return ih
   end
 end
@@ -1531,19 +1538,19 @@ local builder = setmetatable({}, builder_mt)
 
 function builder.image(t)
   local ih = mod.image(t.width, t.height, t.pixels)
-  help.set_attributes_table(ih, t)
+  help.set_attributes_lua(ih, t)
   return ih
 end
 
 function builder.image_rgb(t)
   local ih = mod.image_rgb(t.width, t.height, t.pixels)
-  help.set_attributes_table(ih, t)
+  help.set_attributes_lua(ih, t)
   return ih
 end
 
 function builder.image_rgba(t)
   local ih = mod.image_rgba(t.width, t.height, t.pixels)
-  help.set_attributes_table(ih, t)
+  help.set_attributes_lua(ih, t)
   return ih
 end
 
@@ -1576,7 +1583,29 @@ function help.attrvalue(value)
   return type(value) ~= 'cdata' and tostring(value) or value
 end
 
-function help.set_attributes_table(ih, t)
+function help.set_attribute_lua(handle, index, value)
+  local ti = type(index)
+  local tv = type(value)
+
+  if ti == 'number' or ti == 'string' then
+    local index_lo = string.lower(index)
+    local index_up = string.upper(index)
+
+    local cbtype = cb[index_lo]
+    if cbtype then
+      if type(value) == 'function' then
+        value = cbtype(value)
+      end
+      mod.set_callback(handle, index_up, value)
+    elseif ffi.istype('Ihandle', value) then
+      mod.set_attribute_handle(handle, index, value)
+    elseif tv == 'string' or tv == 'number' or tv == 'nil' then
+      mod.set_attribute(handle, index_up, value)
+    end
+  end
+end
+
+function help.set_attributes_lua(ih, t)
   if t == nil then return end
 
   local i = 1
@@ -1585,7 +1614,7 @@ function help.set_attributes_table(ih, t)
       i = i + 1
       mod.append(ih, v)
     else
-      mod.set_attribute(ih, k, v)
+      help.set_attribute_lua(ih, k, v)
     end
   end
 end
@@ -1600,6 +1629,8 @@ end
 
 widget_mt = {}
 widget_mt.__index = widget_mt
+
+widget_mt.__newindex = help.set_attribute_lua
 
 widget_mt.update                = mod.update
 widget_mt.update_children       = mod.update_children
